@@ -1,0 +1,10 @@
+streamlit
+pandas
+folium
+streamlit-folium
+websockets
+streamlit-autorefresh
+geopandas
+pydeck
+python-dateutil
+plotly
