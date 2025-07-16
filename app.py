@@ -9,10 +9,39 @@ from datetime import timedelta, datetime
 # --- 1. Конфигурация страницы и Заголовок ---
 st.set_page_config(layout="wide", page_title="Анализ 'Судно-Пятно'")
 
-# Добавляем CSS для уменьшения отступов
+# --- ИЗМЕНЕНО: Добавлены стили для темной темы и сохранены стили для отступов ---
 st.markdown("""
 <style>
-/* Уменьшаем отступы между элементами */
+/* --- СТИЛИ ДЛЯ ТЕМНОЙ ТЕМЫ --- */
+body {
+    color: #fff;
+    background-color: #111;
+}
+.stApp {
+    background-color: #0E1117;
+}
+/* Цвет заголовков */
+h1, h2, h3, h4, h5, h6 {
+    color: #ffffff !important;
+}
+/* Основной текст */
+p, .stMarkdown, .stWrite, div[data-testid="stText"], .stDataFrame {
+    color: #fafafa !important;
+}
+/* Боковая панель */
+[data-testid="stSidebar"] {
+    background-color: #1c1c1e !important;
+}
+/* Текст и метки на боковой панели */
+[data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3, [data-testid="stSidebar"] label {
+     color: #ffffff !important;
+}
+label[data-testid="stWidgetLabel"] p {
+    color: #fafafa !important;
+}
+/* --- КОНЕЦ СТИЛЕЙ ДЛЯ ТЕМНОЙ ТЕМЫ --- */
+
+/* Уменьшаем отступы между элементами (из оригинального кода) */
 div[data-testid="stVerticalBlock"] > div {
     margin-top: 0.5rem !important;
     padding-top: 0 !important;
@@ -38,7 +67,7 @@ st.write("""
 и предоставляет расширенную аналитику по инцидентам.
 """)
 
-# --- ИЗМЕНЕНО: Задаем пути к файлам в репозитории ---
+# --- Задаем пути к файлам в репозитории ---
 SPILLS_FILE_PATH = 'fields2.geojson'
 AIS_FILE_PATH = 'generated_ais_data.csv'
 
@@ -52,10 +81,10 @@ time_window_hours = st.sidebar.slider(
     help="Искать суда, которые были в зоне разлива за указанное количество часов ДО его обнаружения."
 )
 
-# Фильтр по диапазону дат
+# --- ИЗМЕНЕНО: Диапазон дат установлен по умолчанию согласно запросу ---
 date_range = st.sidebar.date_input(
     "Диапазон дат для анализа:",
-    value=(datetime(2023, 1, 1), datetime(2025, 06, 15)),
+    value=(datetime(2023, 1, 1), datetime(2025, 6, 15)), # Установлен требуемый диапазон
     min_value=datetime(2000, 1, 1),
     max_value=datetime.now(),
     help="Выберите диапазон дат для фильтрации разливов и AIS-данных."
@@ -188,11 +217,10 @@ with st.container():
         m = folium.Map(
             location=map_center,
             zoom_start=8,
-            tiles="CartoDB positron",
-            attribution_control=False  # Отключаем стандартную атрибуцию
+            tiles="CartoDB dark_matter", # Изменено на темный слой карты
+            attribution_control=False
         )
 
-        # Добавляем пользовательскую атрибуцию без флага
         folium.map.CustomPane("labels").add_to(m)
         m.get_root().html.add_child(folium.Element("""
         <script>
@@ -211,12 +239,11 @@ with st.container():
         </script>
         """))
 
-        # Слой с пятнами
         spills_fg = folium.FeatureGroup(name="Пятна разливов").add_to(m)
         for _, row in spills_gdf.iterrows():
             folium.GeoJson(
                 row['geometry'],
-                style_function=lambda x: {'fillColor': '#B22222', 'color': 'black', 'weight': 1.5, 'fillOpacity': 0.6},
+                style_function=lambda x: {'fillColor': '#FF4500', 'color': '#FFFFFF', 'weight': 1.5, 'fillOpacity': 0.6},
                 tooltip=f"<b>Пятно:</b> {row.get('spill_id', 'N/A')}<br>"
                         f"<b>Время:</b> {row['detection_date'].strftime('%Y-%m-%d %H:%M')}<br>"
                         f"<b>Площадь:</b> {row.get('area_sq_km', 0):.2f} км²"
@@ -288,10 +315,9 @@ with tab2:
         m_heatmap = folium.Map(
             location=map_center,
             zoom_start=8,
-            tiles="CartoDB positron",
-            attribution_control=False  # Отключаем стандартную атрибуцию
+            tiles="CartoDB dark_matter", # Изменено на темный слой карты
+            attribution_control=False
         )
-        # Добавляем пользовательскую атрибуцию без флага
         m_heatmap.get_root().html.add_child(folium.Element("""
         <script>
             L.Control.Attribution.prototype._update = function() {
@@ -338,7 +364,13 @@ with tab3:
             st.dataframe(vessel_type_analysis)
 
             import plotly.express as px
+            # Адаптация диаграммы под темную тему
             fig = px.pie(vessel_type_analysis, names='VesselType', values='incident_count',
                          title='Распределение инцидентов по типам судов',
                          labels={'VesselType':'Тип судна', 'incident_count':'Количество инцидентов'})
+            fig.update_layout({
+                'plot_bgcolor': 'rgba(0, 0, 0, 0)',
+                'paper_bgcolor': 'rgba(0, 0, 0, 0)',
+                'font': {'color': '#ffffff'}
+            })
             st.plotly_chart(fig)
