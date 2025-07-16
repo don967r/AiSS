@@ -1,0 +1,18 @@
+[theme]
+# Основной цвет для интерактивных элементов.
+primaryColor="#7792E3"
+
+# Цвет фона основного контента.
+backgroundColor="#0E1117"
+
+# Цвет фона боковой панели.
+secondaryBackgroundColor="#262730"
+
+# Цвет текста.
+textColor="#FAFAFA"
+
+# Шрифт.
+font="sans serif"
+
+# Устанавливаем базовую тему на "dark"
+base="dark"
