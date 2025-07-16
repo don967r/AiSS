@@ -45,6 +45,9 @@ AIS_FILE_PATH = 'generated_ais_data.csv'
 # --- 2. Боковая панель с параметрами ---
 st.sidebar.header("Параметры анализа")
 
+# --- ДОБАВЛЕНО: Переключение темы ---
+dark_mode = st.sidebar.toggle("Включить темную тему", value=False, help="Переключает тему карт между светлой и темной.")
+
 # Фильтр по временному окну
 time_window_hours = st.sidebar.slider(
     "Временное окно поиска (часы до обнаружения):",
@@ -52,12 +55,12 @@ time_window_hours = st.sidebar.slider(
     help="Искать суда, которые были в зоне разлива за указанное количество часов ДО его обнаружения."
 )
 
-# Фильтр по диапазону дат
+# --- ИЗМЕНЕНО: Фильтр по диапазону дат ---
 date_range = st.sidebar.date_input(
     "Диапазон дат для анализа:",
-    value=(datetime(2022, 1, 1), datetime(2025, 07, 15)),
+    value=(datetime(2022, 1, 1), datetime(2025, 7, 15)), # Установлен новый диапазон по умолчанию
     min_value=datetime(2000, 1, 1),
-    max_value=datetime.now(),
+    max_value=datetime(2030, 12, 31), # Установлена будущая дата для корректной работы
     help="Выберите диапазон дат для фильтрации разливов и AIS-данных."
 )
 
@@ -185,11 +188,15 @@ with st.container():
         st.warning("Нет данных о разливах в выбранном диапазоне дат.")
     else:
         map_center = [spills_gdf.unary_union.centroid.y, spills_gdf.unary_union.centroid.x]
+        
+        # --- ИЗМЕНЕНО: Выбор тайлов карты в зависимости от темы ---
+        map_tiles = "CartoDB dark_matter" if dark_mode else "CartoDB positron"
+        
         m = folium.Map(
             location=map_center,
             zoom_start=8,
-            tiles="CartoDB positron",
-            attribution_control=False  # Отключаем стандартную атрибуцию
+            tiles=map_tiles,
+            attribution_control=False 
         )
 
         # Добавляем пользовательскую атрибуцию без флага
@@ -285,12 +292,16 @@ with tab2:
     if spills_gdf.empty:
         st.warning("Нет данных для отображения карты горячих точек.")
     else:
+        # --- ИЗМЕНЕНО: Выбор тайлов карты в зависимости от темы ---
+        map_tiles = "CartoDB dark_matter" if dark_mode else "CartoDB positron"
+
         m_heatmap = folium.Map(
             location=map_center,
             zoom_start=8,
-            tiles="CartoDB positron",
-            attribution_control=False  # Отключаем стандартную атрибуцию
+            tiles=map_tiles,
+            attribution_control=False
         )
+        
         # Добавляем пользовательскую атрибуцию без флага
         m_heatmap.get_root().html.add_child(folium.Element("""
         <script>
