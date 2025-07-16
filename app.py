@@ -65,6 +65,12 @@ date_range = st.sidebar.date_input(
     help="Выберите диапазон дат для фильтрации разливов и AIS-данных."
 )
 
+# --- ДОБАВЛЕНО: Управление слоями в боковой панели ---
+st.sidebar.header("Управление слоями")
+show_spills = st.sidebar.checkbox("Показать пятна разливов", value=True)
+show_ships = st.sidebar.checkbox("Показать суда-кандидаты", value=True)
+
+
 # --- 3. Функции для обработки и анализа данных ---
 @st.cache_data
 def load_spills_data(file_path):
@@ -73,7 +79,6 @@ def load_spills_data(file_path):
     except Exception as e:
         st.error(f"Не удалось прочитать GeoJSON файл '{file_path}'. Убедитесь, что он существует в репозитории. Ошибка: {e}")
         return None
-    # ... (остальной код функции без изменений)
     required_cols = ['slick_name', 'area_sys']
     if not all(col in gdf.columns for col in required_cols):
         missing = [col for col in required_cols if col not in gdf.columns]
@@ -97,7 +102,6 @@ def load_spills_data(file_path):
         gdf = gdf.to_crs("EPSG:4326")
     return gdf
 
-
 @st.cache_data
 def load_ais_data(file_path):
     try:
@@ -105,7 +109,6 @@ def load_ais_data(file_path):
     except Exception as e:
         st.error(f"Не удалось прочитать CSV файл '{file_path}'. Убедитесь, что он существует в репозитории. Ошибка: {e}")
         return None
-    # ... (остальной код функции без изменений)
     required_cols = ['mmsi', 'latitude', 'longitude', 'BaseDateTime']
     if not all(col in df.columns for col in required_cols):
         missing = [col for col in required_cols if col not in df.columns]
@@ -120,11 +123,9 @@ def load_ais_data(file_path):
     )
     return gdf
 
-
 def find_candidates(spills_gdf, vessels_gdf, time_window_hours):
     if spills_gdf is None or vessels_gdf is None:
         return gpd.GeoDataFrame()
-    # ... (остальной код функции без изменений)
     candidates = gpd.sjoin(vessels_gdf, spills_gdf, predicate='within')
     if candidates.empty:
         return gpd.GeoDataFrame()
@@ -180,7 +181,6 @@ with st.container():
     else:
         map_center = [spills_gdf.unary_union.centroid.y, spills_gdf.unary_union.centroid.x]
         
-        # Выбор тайлов карты в зависимости от переключателя
         map_tiles = "CartoDB dark_matter" if dark_mode_map else "CartoDB positron"
         
         m = folium.Map(
@@ -189,7 +189,7 @@ with st.container():
             tiles=map_tiles,
             attribution_control=False 
         )
-        # ... (остальной код блока без изменений)
+
         folium.map.CustomPane("labels").add_to(m)
         m.get_root().html.add_child(folium.Element("""
         <script>
@@ -207,18 +207,24 @@ with st.container():
             };
         </script>
         """))
-        spills_fg = folium.FeatureGroup(name="Пятна разливов").add_to(m)
-        for _, row in spills_gdf.iterrows():
-            folium.GeoJson(
-                row['geometry'],
-                style_function=lambda x: {'fillColor': '#B22222', 'color': 'black', 'weight': 1.5, 'fillOpacity': 0.6},
-                tooltip=f"<b>Пятно:</b> {row.get('spill_id', 'N/A')}<br>"
-                        f"<b>Время:</b> {row['detection_date'].strftime('%Y-%m-%d %H:%M')}<br>"
-                        f"<b>Площадь:</b> {row.get('area_sq_km', 0):.2f} км²"
-            ).add_to(spills_fg)
+        
         candidates_df = find_candidates(spills_gdf, vessels_gdf, time_window_hours)
-        if not candidates_df.empty:
-            candidate_vessels_fg = folium.FeatureGroup(name="Суда-кандидаты").add_to(m)
+
+        # --- ИЗМЕНЕНО: Условное добавление слоев на карту ---
+        if show_spills:
+            spills_fg = folium.FeatureGroup(name="Пятна разливов")
+            for _, row in spills_gdf.iterrows():
+                folium.GeoJson(
+                    row['geometry'],
+                    style_function=lambda x: {'fillColor': '#B22222', 'color': 'black', 'weight': 1.5, 'fillOpacity': 0.6},
+                    tooltip=f"<b>Пятно:</b> {row.get('spill_id', 'N/A')}<br>"
+                            f"<b>Время:</b> {row['detection_date'].strftime('%Y-%m-%d %H:%M')}<br>"
+                            f"<b>Площадь:</b> {row.get('area_sq_km', 0):.2f} км²"
+                ).add_to(spills_fg)
+            spills_fg.add_to(m)
+
+        if show_ships and not candidates_df.empty:
+            candidate_vessels_fg = folium.FeatureGroup(name="Суда-кандидаты")
             for _, row in candidates_df.iterrows():
                 vessel_name = row.get('vessel_name', 'Имя не указано')
                 folium.Marker(
@@ -228,7 +234,11 @@ with st.container():
                             f"<b>Внутри пятна:</b> {row['spill_id']}",
                     icon=folium.Icon(color='blue', icon='ship', prefix='fa')
                 ).add_to(candidate_vessels_fg)
-        folium.LayerControl().add_to(m)
+            candidate_vessels_fg.add_to(m)
+
+        # --- УДАЛЕНО: Стандартный контрол слоев Folium ---
+        # folium.LayerControl().add_to(m) 
+        
         st_folium(m, width=1200, height=400)
 
     st.header(f"Таблица судов-кандидатов (найдено в пределах {time_window_hours} часов)")
@@ -239,6 +249,7 @@ with st.container():
         desired_cols = ['spill_id', 'mmsi', 'vessel_name', 'timestamp', 'detection_date', 'area_sq_km']
         existing_cols = [col for col in desired_cols if col in report_df.columns]
         display_df = report_df[existing_cols].copy()
+
         rename_dict = {
             'spill_id': 'ID Пятна',
             'mmsi': 'MMSI Судна',
@@ -254,7 +265,7 @@ with st.container():
 st.header("Дополнительная аналитика")
 tab1, tab2, tab3 = st.tabs(["📊 Аналитика по судам", "📍 Горячие точки (Hotspots)", "🔍 Аналитика по инцидентам"])
 
-# ... (Код для вкладок остается без изменений)
+# ... (Код для вкладок остается без изменений, но карта во вкладке "Горячие точки" также будет использовать тему из сайдбара)
 with tab1:
     st.subheader("Антирейтинг по количеству связанных пятен")
     unique_incidents = candidates_df.drop_duplicates(subset=['mmsi', 'spill_id'])
@@ -263,6 +274,7 @@ with tab1:
         ship_names = unique_incidents[['mmsi', 'vessel_name']].drop_duplicates()
         ship_incident_counts = pd.merge(ship_incident_counts, ship_names, on='mmsi', how='left')
     st.dataframe(ship_incident_counts)
+    
     st.subheader("Антирейтинг по суммарной площади связанных пятен (км²)")
     ship_area_sum = unique_incidents.groupby('mmsi')['area_sq_km'].sum().reset_index(name='total_area_sq_km').sort_values('total_area_sq_km', ascending=False).reset_index(drop=True)
     if 'vessel_name' in unique_incidents.columns:
@@ -297,22 +309,26 @@ with tab2:
             };
         </script>
         """))
+
         heat_data = [[point.xy[1][0], point.xy[0][0], row['area_sq_km']] for index, row in spills_gdf.iterrows() for point in [row['geometry'].centroid]]
         HeatMap(heat_data, radius=15, blur=20, max_zoom=10).add_to(m_heatmap)
-        folium.LayerControl().add_to(m_heatmap)
+        # folium.LayerControl().add_to(m_heatmap) # Этот контрол здесь тоже не нужен
         st_folium(m_heatmap, width=1200, height=400)
 
 with tab3:
     st.subheader("Пятна с наибольшим количеством судов-кандидатов")
     spill_candidate_counts = candidates_df.groupby('spill_id')['mmsi'].nunique().reset_index(name='candidate_count').sort_values('candidate_count', ascending=False).reset_index(drop=True)
     st.dataframe(spill_candidate_counts)
+
     st.subheader("Главные подозреваемые (минимальное время до обнаружения)")
     candidates_df['time_to_detection'] = candidates_df['detection_date'] - candidates_df['timestamp']
     prime_suspects_idx = candidates_df.groupby('spill_id')['time_to_detection'].idxmin()
     prime_suspects_df = candidates_df.loc[prime_suspects_idx]
+
     display_cols = ['spill_id', 'mmsi', 'vessel_name', 'time_to_detection', 'area_sq_km']
     existing_display_cols = [col for col in display_cols if col in prime_suspects_df.columns]
     st.dataframe(prime_suspects_df[existing_display_cols].sort_values('area_sq_km', ascending=False))
+
     if 'VesselType' in unique_incidents.columns:
         with st.expander("🚢 Аналитика по типам судов"):
             vessel_type_analysis = unique_incidents.groupby('VesselType').agg(
@@ -320,6 +336,7 @@ with tab3:
                 total_area_sq_km=('area_sq_km', 'sum')
             ).sort_values('incident_count', ascending=False).reset_index()
             st.dataframe(vessel_type_analysis)
+
             import plotly.express as px
             fig = px.pie(vessel_type_analysis, names='VesselType', values='incident_count',
                          title='Распределение инцидентов по типам судов',
