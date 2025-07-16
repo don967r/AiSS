@@ -55,7 +55,7 @@ time_window_hours = st.sidebar.slider(
 # Фильтр по диапазону дат
 date_range = st.sidebar.date_input(
     "Диапазон дат для анализа:",
-    value=(datetime(2023, 1, 1), datetime(2023, 12, 31)),
+    value=(datetime(2022, 1, 1), datetime(2025, 07, 15)),
     min_value=datetime(2000, 1, 1),
     max_value=datetime.now(),
     help="Выберите диапазон дат для фильтрации разливов и AIS-данных."
