@@ -9,22 +9,30 @@ from datetime import timedelta, datetime
 # --- 1. Конфигурация страницы и Заголовок ---
 st.set_page_config(layout="wide", page_title="Анализ 'Судно-Пятно'")
 
+# --- ИЗМЕНЕНО: CSS для уменьшения вертикальных отступов ---
+# Этот блок CSS уменьшает отступы между основными элементами, такими как заголовки и карта,
+# решая проблему большого расстояния.
 st.markdown("""
 <style>
-/* Уменьшаем отступы между элементами */
+/* Уменьшаем общие вертикальные отступы */
+div.block-container {
+    padding-top: 2rem;
+    padding-bottom: 1rem;
+}
+/* Уменьшаем отступы между элементами в основном контейнере */
 div[data-testid="stVerticalBlock"] > div {
     margin-top: 0.5rem !important;
     padding-top: 0 !important;
     margin-bottom: 0.5rem !important;
     padding-bottom: 0 !important;
 }
-/* Уменьшаем отступы для карты */
+/* Уменьшаем нижний отступ для карты */
 div[data-testid="stFolium"] {
     margin-bottom: 0.5rem !important;
 }
-/* Уменьшаем отступы для заголовков */
+/* Уменьшаем отступы для заголовков H2 */
 h2 {
-    margin-top: 0.5rem !important;
+    margin-top: 1rem !important;
     margin-bottom: 0.5rem !important;
 }
 </style>
@@ -62,7 +70,7 @@ date_range = st.sidebar.date_input(
 )
 
 st.sidebar.header("Управление слоями")
-st.sidebar.info("Управляет видимостью слоев по умолчанию. Их можно также переключать на самой карте.")
+# --- ИЗМЕНЕНО: Удален информационный текст st.sidebar.info ---
 show_spills = st.sidebar.checkbox("Пятна разливов", value=True)
 show_ships = st.sidebar.checkbox("Суда-кандидаты", value=True)
 show_routes = st.sidebar.checkbox("Судовые трассы", value=True)
@@ -185,11 +193,10 @@ with st.container():
         map_center = [spills_gdf.unary_union.centroid.y, spills_gdf.unary_union.centroid.x]
         map_tiles = "CartoDB dark_matter" if dark_mode_map else "CartoDB positron"
         
-        m = folium.Map(location=map_center, zoom_start=8, tiles=map_tiles)
+        # --- ИЗМЕНЕНО: Начальный зум карты уменьшен до 6 ---
+        m = folium.Map(location=map_center, zoom_start=6, tiles=map_tiles)
         
         candidates_df = find_candidates(spills_gdf, vessels_gdf, time_window_hours)
-
-        # --- ИЗМЕНЕНО: Создаем слои, управляя их видимостью по умолчанию ---
 
         # Слой 1: Пятна разливов
         spills_fg = folium.FeatureGroup(name="Пятна разливов", show=show_spills)
@@ -229,7 +236,6 @@ with st.container():
                 ).add_to(routes_fg)
         routes_fg.add_to(m)
 
-        # --- ДОБАВЛЕНО: Добавляем контрол для переключения слоев на карте ---
         folium.LayerControl().add_to(m) 
         
         st_folium(m, width=1200, height=450, returned_objects=[])
@@ -250,11 +256,12 @@ with st.container():
         st.dataframe(display_df.sort_values(by='Время обнаружения', ascending=False).reset_index(drop=True))
 
 # --- 6. Блок с расширенной аналитикой ---
-# (Код для вкладок остается без изменений)
 st.header("Дополнительная аналитика")
 tab1, tab2, tab3 = st.tabs(["📊 Аналитика по судам", "📍 Горячие точки (Hotspots)", "🔍 Аналитика по инцидентам"])
 
-candidates_df_for_analytics = find_candidates(load_spills_data(SPILLS_FILE_PATH), load_ais_data(AIS_FILE_PATH), time_window_hours)
+# Используем уже загруженные данные, чтобы не перезагружать их снова
+candidates_df_for_analytics = find_candidates(spills_gdf, vessels_gdf, time_window_hours)
+
 
 with tab1:
     if not candidates_df_for_analytics.empty:
@@ -276,7 +283,8 @@ with tab2:
     if spills_gdf.empty:
         st.warning("Нет данных для отображения карты горячих точек.")
     else:
-        m_heatmap = folium.Map(location=map_center, zoom_start=8, tiles=map_tiles)
+        # Используем map_center и map_tiles, определенные ранее
+        m_heatmap = folium.Map(location=map_center, zoom_start=6, tiles=map_tiles)
         heat_data = [[point.xy[1][0], point.xy[0][0], row['area_sq_km']] for _, row in spills_gdf.iterrows() for point in [row['geometry'].centroid]]
         HeatMap(heat_data, radius=15, blur=20).add_to(m_heatmap)
         st_folium(m_heatmap, width=1200, height=400, returned_objects=[])
