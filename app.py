@@ -194,7 +194,7 @@ with st.container():
         map_tiles = "CartoDB dark_matter" if dark_mode_map else "CartoDB positron"
         
         # --- ИЗМЕНЕНО: Начальный зум карты уменьшен до 6 ---
-        m = folium.Map(location=map_center, zoom_start=6, tiles=map_tiles)
+        m = folium.Map(location=map_center, zoom_start=4, tiles=map_tiles)
         
         candidates_df = find_candidates(spills_gdf, vessels_gdf, time_window_hours)
 
