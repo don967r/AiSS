@@ -9,9 +9,7 @@ from datetime import timedelta, datetime
 # --- 1. Конфигурация страницы и Заголовок ---
 st.set_page_config(layout="wide", page_title="Анализ 'Судно-Пятно'")
 
-# --- ИЗМЕНЕНО: CSS для уменьшения вертикальных отступов ---
-# Этот блок CSS уменьшает отступы между основными элементами, такими как заголовки и карта,
-# решая проблему большого расстояния.
+# --- CSS для уменьшения вертикальных отступов ---
 st.markdown("""
 <style>
 /* Уменьшаем общие вертикальные отступы */
@@ -70,7 +68,6 @@ date_range = st.sidebar.date_input(
 )
 
 st.sidebar.header("Управление слоями")
-# --- ИЗМЕНЕНО: Удален информационный текст st.sidebar.info ---
 show_spills = st.sidebar.checkbox("Пятна разливов", value=True)
 show_ships = st.sidebar.checkbox("Суда-кандидаты", value=True)
 show_routes = st.sidebar.checkbox("Судовые трассы", value=True)
@@ -193,8 +190,9 @@ with st.container():
         map_center = [spills_gdf.unary_union.centroid.y, spills_gdf.unary_union.centroid.x]
         map_tiles = "CartoDB dark_matter" if dark_mode_map else "CartoDB positron"
         
-        # --- ИЗМЕНЕНО: Начальный зум карты уменьшен до 6 ---
-        m = folium.Map(location=map_center, zoom_start=4, tiles=map_tiles)
+        # --- ИЗМЕНЕНИЕ 1: Начальный зум карты уменьшен до 2 для максимального отдаления ---
+        # --- ИЗМЕНЕНИЕ 2: Добавлен параметр attr='' для удаления надписи ---
+        m = folium.Map(location=map_center, zoom_start=2, tiles=map_tiles, attr='')
         
         candidates_df = find_candidates(spills_gdf, vessels_gdf, time_window_hours)
 
@@ -283,8 +281,8 @@ with tab2:
     if spills_gdf.empty:
         st.warning("Нет данных для отображения карты горячих точек.")
     else:
-        # Используем map_center и map_tiles, определенные ранее
-        m_heatmap = folium.Map(location=map_center, zoom_start=4, tiles=map_tiles)
+        # Применяем те же изменения к карте горячих точек
+        m_heatmap = folium.Map(location=map_center, zoom_start=2, tiles=map_tiles, attr='')
         heat_data = [[point.xy[1][0], point.xy[0][0], row['area_sq_km']] for _, row in spills_gdf.iterrows() for point in [row['geometry'].centroid]]
         HeatMap(heat_data, radius=15, blur=20).add_to(m_heatmap)
         st_folium(m_heatmap, width=1200, height=400, returned_objects=[])
