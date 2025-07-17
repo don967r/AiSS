@@ -9,7 +9,7 @@ from datetime import timedelta, datetime
 # --- 1. Конфигурация страницы и Заголовок ---
 st.set_page_config(layout="wide", page_title="Анализ 'Судно-Пятно'")
 
-# --- ИСПРАВЛЕНИЕ: CSS для точной настройки вертикальных отступов ---
+# --- CSS для точной настройки вертикальных отступов ---
 st.markdown("""
 <style>
 /* Уменьшаем общие вертикальные отступы для всей страницы */
@@ -17,17 +17,14 @@ div.block-container {
     padding-top: 2rem;
     padding-bottom: 2rem;
 }
-
 /* Главное изменение: Уменьшаем стандартный промежуток между элементами */
 div[data-testid="stVerticalBlock"] {
     gap: 1rem; /* Вы можете настроить это значение, например, 0.5rem или 1.5rem */
 }
-
 /* Убираем лишний нижний отступ у контейнера с картой */
 div[data-testid="stFolium"] {
     margin-bottom: 0 !important;
 }
-
 /* Настраиваем отступы у заголовков для лучшего вида */
 h2 {
     margin-top: 1.5rem !important;
@@ -50,15 +47,12 @@ ROUTES_FILE_PATH = 'routs.geojson'
 
 # --- 2. Боковая панель с параметрами ---
 st.sidebar.header("Параметры анализа")
-
 dark_mode_map = st.sidebar.toggle("Включить темную тему для карты", value=False, help="Переключает тему карт между светлой и темной.")
-
 time_window_hours = st.sidebar.slider(
     "Временное окно поиска (часы до обнаружения):",
     min_value=1, max_value=168, value=24, step=1,
     help="Искать суда, которые были в зоне разлива за указанное количество часов ДО его обнаружения."
 )
-
 date_range = st.sidebar.date_input(
     "Диапазон дат для анализа:",
     value=(datetime(2022, 1, 1), datetime(2025, 7, 15)),
@@ -66,12 +60,10 @@ date_range = st.sidebar.date_input(
     max_value=datetime(2030, 12, 31),
     help="Выберите диапазон дат для фильтрации разливов и AIS-данных."
 )
-
 st.sidebar.header("Управление слоями")
 show_spills = st.sidebar.checkbox("Пятна разливов", value=True)
 show_ships = st.sidebar.checkbox("Суда-кандидаты", value=True)
 show_routes = st.sidebar.checkbox("Судовые трассы", value=True)
-
 
 # --- 3. Функции для обработки и анализа данных ---
 @st.cache_data
@@ -184,16 +176,18 @@ if selected_vessels_display:
 # --- 5. Отображение карты и таблицы ---
 with st.container():
     st.header("Карта разливов и судов-кандидатов")
+    
+    # Задаем центр на Нарьян-Мар
+    map_center = [67.638, 53.005] 
+    map_tiles = "CartoDB dark_matter" if dark_mode_map else "CartoDB positron"
+    
+    # --- ИЗМЕНЕНИЕ: Возвращен исходный обзорный зум ---
+    m = folium.Map(location=map_center, zoom_start=3, tiles=map_tiles, attr='')
+    
     if spills_gdf.empty:
         st.warning("Нет данных о разливах в выбранном диапазоне дат.")
     else:
-        map_center = [spills_gdf.unary_union.centroid.y, spills_gdf.unary_union.centroid.x]
-        map_tiles = "CartoDB dark_matter" if dark_mode_map else "CartoDB positron"
-        
-        m = folium.Map(location=map_center, zoom_start=3, tiles=map_tiles, attr='')
-        
         candidates_df = find_candidates(spills_gdf, vessels_gdf, time_window_hours)
-
         # Слой 1: Пятна разливов
         spills_fg = folium.FeatureGroup(name="Пятна разливов", show=show_spills)
         for _, row in spills_gdf.iterrows():
@@ -232,11 +226,10 @@ with st.container():
                 ).add_to(routes_fg)
         routes_fg.add_to(m)
 
-        folium.LayerControl().add_to(m) 
-        
-        # --- ИСПРАВЛЕНИЕ: Уменьшена высота карты для сокращения пустого пространства ---
-        st_folium(m, width=1200, height=400, returned_objects=[])
+    folium.LayerControl().add_to(m) 
+    st_folium(m, width=1200, height=400, returned_objects=[])
 
+    candidates_df = find_candidates(spills_gdf, vessels_gdf, time_window_hours)
     st.header(f"Таблица судов-кандидатов (в пределах {time_window_hours} часов)")
     if candidates_df.empty:
         st.info("В заданном временном окне и с учетом фильтров суда-кандидаты не найдены.")
@@ -256,19 +249,15 @@ with st.container():
 st.header("Дополнительная аналитика")
 tab1, tab2, tab3 = st.tabs(["📊 Аналитика по судам", "📍 Горячие точки (Hotspots)", "🔍 Аналитика по инцидентам"])
 
-# Используем уже загруженные данные, чтобы не перезагружать их снова
 candidates_df_for_analytics = find_candidates(spills_gdf, vessels_gdf, time_window_hours)
-
 
 with tab1:
     if not candidates_df_for_analytics.empty:
         unique_incidents = candidates_df_for_analytics.drop_duplicates(subset=['mmsi', 'spill_id'])
         ship_names = unique_incidents[['mmsi', 'vessel_name']].drop_duplicates('mmsi')
-        
         st.subheader("Антирейтинг по количеству связанных пятен")
         ship_incident_counts = unique_incidents.groupby('mmsi').size().reset_index(name='incident_count').sort_values('incident_count', ascending=False)
         st.dataframe(pd.merge(ship_incident_counts, ship_names, on='mmsi', how='left'))
-        
         st.subheader("Антирейтинг по суммарной площади связанных пятен (км²)")
         ship_area_sum = unique_incidents.groupby('mmsi')['area_sq_km'].sum().reset_index(name='total_area_sq_km').sort_values('total_area_sq_km', ascending=False)
         st.dataframe(pd.merge(ship_area_sum, ship_names, on='mmsi', how='left'))
@@ -280,11 +269,11 @@ with tab2:
     if spills_gdf.empty:
         st.warning("Нет данных для отображения карты горячих точек.")
     else:
+        map_center = [67.638, 53.005]
+        # --- ИЗМЕНЕНИЕ: Возвращен исходный обзорный зум ---
         m_heatmap = folium.Map(location=map_center, zoom_start=3, tiles=map_tiles, attr='')
         heat_data = [[point.xy[1][0], point.xy[0][0], row['area_sq_km']] for _, row in spills_gdf.iterrows() for point in [row['geometry'].centroid]]
         HeatMap(heat_data, radius=15, blur=20).add_to(m_heatmap)
-        
-        # --- ИСПРАВЛЕНИЕ: Уменьшена высота карты для компактности во вкладке ---
         st_folium(m_heatmap, width=1200, height=350, returned_objects=[])
 
 with tab3:
@@ -293,7 +282,6 @@ with tab3:
         st.subheader("Пятна с наибольшим количеством судов-кандидатов")
         spill_candidate_counts = candidates_df_for_analytics.groupby('spill_id')['mmsi'].nunique().reset_index(name='candidate_count').sort_values('candidate_count', ascending=False)
         st.dataframe(spill_candidate_counts)
-
         st.subheader("Главные подозреваемые (минимальное время до обнаружения)")
         candidates_df_for_analytics['time_to_detection'] = candidates_df_for_analytics['detection_date'] - candidates_df_for_analytics['timestamp']
         prime_suspects_idx = candidates_df_for_analytics.groupby('spill_id')['time_to_detection'].idxmin()
