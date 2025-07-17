@@ -190,9 +190,8 @@ with st.container():
         map_center = [spills_gdf.unary_union.centroid.y, spills_gdf.unary_union.centroid.x]
         map_tiles = "CartoDB dark_matter" if dark_mode_map else "CartoDB positron"
         
-        # --- ИЗМЕНЕНИЕ 1: Начальный зум карты уменьшен до 2 для максимального отдаления ---
-        # --- ИЗМЕНЕНИЕ 2: Добавлен параметр attr='' для удаления надписи ---
-        m = folium.Map(location=map_center, zoom_start=2, tiles=map_tiles, attr='RU')
+        # --- ИЗМЕНЕНИЕ: Начальный зум карты установлен на 3 ---
+        m = folium.Map(location=map_center, zoom_start=3, tiles=map_tiles, attr='')
         
         candidates_df = find_candidates(spills_gdf, vessels_gdf, time_window_hours)
 
@@ -281,8 +280,8 @@ with tab2:
     if spills_gdf.empty:
         st.warning("Нет данных для отображения карты горячих точек.")
     else:
-        # Применяем те же изменения к карте горячих точек
-        m_heatmap = folium.Map(location=map_center, zoom_start=2, tiles=map_tiles, attr='RU')
+        # --- ИЗМЕНЕНИЕ: Начальный зум карты установлен на 3 ---
+        m_heatmap = folium.Map(location=map_center, zoom_start=3, tiles=map_tiles, attr='')
         heat_data = [[point.xy[1][0], point.xy[0][0], row['area_sq_km']] for _, row in spills_gdf.iterrows() for point in [row['geometry'].centroid]]
         HeatMap(heat_data, radius=15, blur=20).add_to(m_heatmap)
         st_folium(m_heatmap, width=1200, height=400, returned_objects=[])
