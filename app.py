@@ -284,7 +284,7 @@ with tab2:
         st.warning("Нет данных для отображения карты горячих точек.")
     else:
         # Используем map_center и map_tiles, определенные ранее
-        m_heatmap = folium.Map(location=map_center, zoom_start=6, tiles=map_tiles)
+        m_heatmap = folium.Map(location=map_center, zoom_start=4, tiles=map_tiles)
         heat_data = [[point.xy[1][0], point.xy[0][0], row['area_sq_km']] for _, row in spills_gdf.iterrows() for point in [row['geometry'].centroid]]
         HeatMap(heat_data, radius=15, blur=20).add_to(m_heatmap)
         st_folium(m_heatmap, width=1200, height=400, returned_objects=[])
