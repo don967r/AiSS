@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import geopandas as gpd
@@ -7,6 +8,8 @@ from streamlit_folium import st_folium
 from datetime import timedelta, datetime
 import io
 from docx import Document
+from docx.shared import Inches
+import matplotlib.pyplot as plt # <-- Новый импорт
 
 # --- 1. Конфигурация страницы и Заголовок ---
 st.set_page_config(layout="wide", page_title="Анализ 'Судно-Пятно'")
@@ -139,6 +142,57 @@ def find_candidates(spills_gdf, vessels_gdf, time_window_hours):
     return candidates
 
 # --- ФУНКЦИИ ДЛЯ ГЕНЕРАЦИИ ОТЧЕТА ---
+
+# >>> НОВАЯ ФУНКЦИЯ ДЛЯ ГЕНЕРАЦИИ ГРАФИКА
+def create_incident_plot(spill_data, candidates_data):
+    """
+    Создает график инцидента (пятно + суда) с помощью Matplotlib.
+    Возвращает изображение в виде байтового потока.
+    """
+    fig, ax = plt.subplots(figsize=(10, 8))
+
+    # Отрисовка контура пятна
+    gpd.GeoSeries([spill_data['geometry']]).plot(
+        ax=ax,
+        edgecolor='red',
+        facecolor='red',
+        alpha=0.3,
+        linewidth=1.5,
+        label=f"Пятно {spill_data['spill_id']}"
+    )
+
+    # Отрисовка судов-кандидатов
+    if not candidates_data.empty:
+        candidates_data.plot(
+            ax=ax,
+            marker='o',
+            color='blue',
+            markersize=50,
+            label='Суда-кандидаты'
+        )
+        # Добавляем аннотации MMSI к точкам судов
+        for idx, row in candidates_data.iterrows():
+            ax.text(row.geometry.x, row.geometry.y, f" {row['mmsi']}", fontsize=9, ha='left', color='navy')
+
+
+    # Настройка графика
+    ax.set_title(f"Карта-схема инцидента: {spill_data['spill_id']}", fontsize=14)
+    ax.set_xlabel("Долгота")
+    ax.set_ylabel("Широта")
+    ax.grid(True, linestyle='--', alpha=0.6)
+    ax.legend()
+    # Устанавливаем равный масштаб для осей, чтобы избежать искажений
+    ax.set_aspect('equal', adjustable='box')
+    plt.tight_layout()
+
+    # Сохраняем график в байтовый буфер в памяти
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', dpi=150)
+    buf.seek(0)
+    plt.close(fig) # Закрываем фигуру, чтобы освободить память
+
+    return buf.getvalue()
+
 def strfdelta(tdelta, fmt):
     """Функция для красивого форматирования timedelta."""
     d = {"days": tdelta.days}
@@ -146,8 +200,8 @@ def strfdelta(tdelta, fmt):
     d["minutes"], d["seconds"] = divmod(rem, 60)
     return fmt.format(**d)
 
-def generate_docx_report(spill_data, candidates_data, prime_suspect_data, historical_data):
-    """Генерирует отчет в формате DOCX на основе данных об инциденте."""
+def generate_docx_report(spill_data, candidates_data, prime_suspect_data, historical_data, plot_bytes=None):
+    """Генерирует отчет в формате DOCX, включая опциональный график."""
     doc = Document()
     doc.add_heading('ОТЧЕТ ПО АНАЛИЗУ СВЯЗИ "СУДНО-ПЯТНО"', level=1)
     
@@ -159,10 +213,19 @@ def generate_docx_report(spill_data, candidates_data, prime_suspect_data, histor
     doc.add_paragraph(f"ID пятна (spill_id): {spill_data['spill_id']}")
     doc.add_paragraph(f"Дата и время обнаружения: {spill_data['detection_date'].strftime('%Y-%m-%d %H:%M:%S')}")
     doc.add_paragraph(f"Площадь пятна (км²): {spill_data.get('area_sq_km', 0):.2f}")
-    if spill_data['geometry']:
-        centroid = spill_data['geometry'].centroid
-        doc.add_paragraph(f"Географические координаты (центроид): Lat {centroid.y:.4f}, Lon {centroid.x:.4f}")
+    
+    centroid = spill_data['geometry'].centroid
+    doc.add_paragraph(f"Географические координаты (центроид): Lat {centroid.y:.4f}, Lon {centroid.x:.4f}")
 
+    if plot_bytes:
+        try:
+            image_stream = io.BytesIO(plot_bytes)
+            doc.add_picture(image_stream, width=Inches(6.0))
+            p = doc.add_paragraph(f"Рис. 1. Карта-схема расположения пятна {spill_data['spill_id']} и судов-кандидатов.")
+            p.style = 'Caption'
+        except Exception as e:
+            doc.add_paragraph(f"[Не удалось вставить изображение: {e}]")
+    
     doc.add_heading('2. ПАРАМЕТРЫ АНАЛИЗА', level=2)
     doc.add_paragraph(f"Временное окно поиска: {time_window_hours} часов до момента обнаружения пятна.")
     doc.add_paragraph("Критерий связи: Судно считается кандидатом, если его AIS-позиция зафиксирована внутри географических границ пятна в указанном временном окне.")
@@ -226,7 +289,7 @@ def generate_docx_report(spill_data, candidates_data, prime_suspect_data, histor
         doc.add_paragraph(reco_text)
     else:
         doc.add_paragraph("Рекомендации не могут быть сформированы из-за отсутствия основного кандидата.")
-
+    
     file_stream = io.BytesIO()
     doc.save(file_stream)
     file_stream.seek(0)
@@ -340,7 +403,7 @@ with st.container(border=False):
     tab1, tab2, tab3 = st.tabs(["📊 Аналитика по судам", "📍 Горячие точки (Hotspots)", "🔍 Аналитика по инцидентам"])
 
     candidates_df_for_analytics = find_candidates(spills_gdf, vessels_gdf, time_window_hours) if not spills_gdf.empty else gpd.GeoDataFrame()
-    prime_suspects_df = pd.DataFrame() # Инициализируем заранее
+    prime_suspects_df = pd.DataFrame()
 
     with tab1:
         if not candidates_df_for_analytics.empty:
@@ -376,73 +439,73 @@ with st.container(border=False):
             st.subheader("Главные подозреваемые (минимальное время до обнаружения)")
             candidates_df_for_analytics['time_to_detection'] = candidates_df_for_analytics['detection_date'] - candidates_df_for_analytics['timestamp']
             prime_suspects_idx = candidates_df_for_analytics.groupby('spill_id')['time_to_detection'].idxmin()
-            # Переопределяем наш ранее созданный пустой DataFrame
             prime_suspects_df = candidates_df_for_analytics.loc[prime_suspects_idx]
             display_cols = ['spill_id', 'mmsi', 'vessel_name', 'time_to_detection', 'area_sq_km']
             st.dataframe(prime_suspects_df[[col for col in display_cols if col in prime_suspects_df]].sort_values('area_sq_km', ascending=False), use_container_width=True)
         else:
             st.info("Нет данных для аналитики по инцидентам.")
 
-# --- 7. УЛУЧШЕННЫЙ БЛОК ФОРМИРОВАНИЯ ОТЧЕТА ---
+# --- 7. УЛУЧШЕННЫЙ БЛОК ФОРМИРОВАНИЯ ОТЧЕТА С АВТОМАТИЧЕСКИМ ГРАФИКОМ ---
 st.header("Формирование отчета по инциденту")
 with st.expander("🖨️ Нажмите, чтобы выбрать инцидент и создать отчет", expanded=False):
 
     if not candidates_df_for_analytics.empty:
+        # --- Часть 1: Выбор инцидента для отчета ---
         spills_with_candidates = candidates_df_for_analytics[['spill_id', 'detection_date', 'area_sq_km']].drop_duplicates(subset=['spill_id'])
         candidate_counts = candidates_df_for_analytics.groupby('spill_id')['mmsi'].nunique().reset_index(name='candidate_count')
         
         reportable_incidents_df = pd.merge(spills_with_candidates, candidate_counts, on='spill_id').sort_values(by='detection_date', ascending=False)
         reportable_incidents_df.rename(columns={
-            'spill_id': 'ID Пятна',
-            'detection_date': 'Дата обнаружения',
-            'area_sq_km': 'Площадь, км²',
-            'candidate_count': 'Кол-во канд.'
+            'spill_id': 'ID Пятна', 'detection_date': 'Дата обнаружения',
+            'area_sq_km': 'Площадь, км²', 'candidate_count': 'Кол-во канд.'
         }, inplace=True)
 
         st.info("Ниже представлены инциденты, для которых найдены суда-кандидаты. Выберите один для создания отчета.")
         st.dataframe(reportable_incidents_df.reset_index(drop=True), use_container_width=True)
 
         reportable_incidents_df['display_option'] = reportable_incidents_df.apply(
-            lambda row: f"ID: {row['ID Пятна']} (кандидатов: {row['Кол-во канд.']})",
-            axis=1
+            lambda row: f"ID: {row['ID Пятна']} (кандидатов: {row['Кол-во канд.']})", axis=1
         )
         
         selected_option = st.radio(
-            "Выберите инцидент:",
+            "Шаг 1: Выберите инцидент для формирования отчета",
             options=reportable_incidents_df['display_option'].tolist(),
             key="report_selection_radio"
         )
 
         if selected_option:
+            # --- Часть 2: Подготовка данных и генерация отчета ---
             selected_spill_id = selected_option.split(' ')[1]
-
             spill_row = spills_gdf[spills_gdf['spill_id'] == selected_spill_id].iloc[0]
             candidates_for_spill = candidates_df_for_analytics[candidates_df_for_analytics['spill_id'] == selected_spill_id]
             
+            # Генерация графика в памяти
+            plot_bytes = create_incident_plot(spill_row, candidates_for_spill)
+            
+            # Подготовка остальных данных для отчета
             prime_suspect_for_spill = prime_suspects_df[prime_suspects_df['spill_id'] == selected_spill_id] if not prime_suspects_df.empty else pd.DataFrame()
-
+            
             historical_data = {}
             if not prime_suspect_for_spill.empty:
                 suspect_mmsi = prime_suspect_for_spill.iloc[0]['mmsi']
-                
                 unique_incidents = candidates_df_for_analytics.drop_duplicates(subset=['mmsi', 'spill_id'])
                 ship_incident_counts = unique_incidents.groupby('mmsi').size().reset_index(name='incident_count')
                 ship_area_sum = unique_incidents.groupby('mmsi')['area_sq_km'].sum().reset_index(name='total_area_sq_km')
-                
                 incident_count = ship_incident_counts[ship_incident_counts['mmsi'] == suspect_mmsi]
                 area_sum = ship_area_sum[ship_area_sum['mmsi'] == suspect_mmsi]
-
                 historical_data['incident_count'] = incident_count['incident_count'].iloc[0] if not incident_count.empty else 0
                 historical_data['total_area_sq_km'] = area_sum['total_area_sq_km'].iloc[0] if not area_sum.empty else 0
 
-            report_bytes = generate_docx_report(spill_row, candidates_for_spill, prime_suspect_for_spill, historical_data)
+            # Генерация самого DOCX файла
+            report_bytes = generate_docx_report(spill_row, candidates_for_spill, prime_suspect_for_spill, historical_data, plot_bytes)
 
+            st.markdown("---")
+            st.subheader("Шаг 2: Скачайте готовый отчет")
             st.download_button(
-                label="📄 Скачать отчет (.docx)",
+                label="✅ Скачать отчет (.docx)",
                 data=report_bytes,
                 file_name=f"Отчет_{selected_spill_id.replace(':', '_')}.docx",
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             )
-
     else:
         st.info("Для формирования отчета не найдено инцидентов с судами-кандидатами в заданном временном окне и с учетом фильтров.")
