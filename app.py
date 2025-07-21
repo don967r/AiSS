@@ -15,11 +15,11 @@ st.markdown("""
 /* Уменьшаем общие вертикальные отступы для всей страницы */
 div.block-container {
     padding-top: 2rem;
-    padding-bottom: 2rem;
+    padding-bottom: 1rem; /* Можно сделать чуть меньше */
 }
 /* Главное изменение: Уменьшаем стандартный промежуток между элементами */
 div[data-testid="stVerticalBlock"] {
-    gap: 1rem; /* Вы можете настроить это значение, например, 0.5rem или 1.5rem */
+    gap: 0.8rem; /* Уменьшим еще немного для плотности */
 }
 /* Убираем лишний нижний отступ у контейнера с картой */
 div[data-testid="stFolium"] {
@@ -30,15 +30,15 @@ h2 {
     margin-top: 1.5rem !important;
     margin-bottom: 0.5rem !important;
 }
+/* === НОВОЕ ПРАВИЛО ДЛЯ ВКЛАДОК === */
+/* Заставляет панель вкладки сжиматься до высоты своего контента */
+div[data-testid="stTabsPanel"] {
+    padding-top: 1rem; /* Добавим небольшой отступ сверху для красоты */
+    padding-bottom: 0 !important;
+    min-height: 0; /* Это ключ к схлопыванию пустого пространства */
+}
 </style>
 """, unsafe_allow_html=True)
-
-st.title("🚢 Анализ связи 'Судно-Пятно' 💧")
-st.write("""
-Приложение автоматически анализирует данные о разливах и треки судов из репозитория.
-Оно находит суда, которые находились в зоне разлива незадолго до его обнаружения,
-и предоставляет расширенную аналитику по инцидентам.
-""")
 
 # --- Задаем пути к файлам в репозитории ---
 SPILLS_FILE_PATH = 'fields2.geojson'
@@ -174,7 +174,7 @@ if selected_vessels_display:
         filtered_routes_gdf = filtered_routes_gdf[filtered_routes_gdf['mmsi'].isin(selected_mmsi)]
 
 # --- 5. Отображение карты и таблицы ---
-with st.container():
+with st.container(border=False):
     st.header("Карта разливов и судов-кандидатов")
     
     # Задаем центр на Нарьян-Мар
@@ -182,7 +182,7 @@ with st.container():
     map_tiles = "CartoDB dark_matter" if dark_mode_map else "CartoDB positron"
     
     # --- ИЗМЕНЕНИЕ: Возвращен исходный обзорный зум ---
-    m = folium.Map(location=map_center, zoom_start=3, tiles=map_tiles, attr='')
+    m = folium.Map(location=map_center, zoom_start=3, tiles=map_tiles, attr = map_tiles)
     
     if spills_gdf.empty:
         st.warning("Нет данных о разливах в выбранном диапазоне дат.")
@@ -243,50 +243,51 @@ with st.container():
             'timestamp': 'Время прохода', 'detection_date': 'Время обнаружения', 'area_sq_km': 'Площадь, км²'
         }
         display_df.rename(columns=rename_dict, inplace=True)
-        st.dataframe(display_df.sort_values(by='Время обнаружения', ascending=False).reset_index(drop=True))
+        st.dataframe(display_df.sort_values(by='Время обнаружения', ascending=False).reset_index(drop=True), use_container_width=True)
 
 # --- 6. Блок с расширенной аналитикой ---
-st.header("Дополнительная аналитика")
-tab1, tab2, tab3 = st.tabs(["📊 Аналитика по судам", "📍 Горячие точки (Hotspots)", "🔍 Аналитика по инцидентам"])
+with st.container(border=False):
+    st.header("Дополнительная аналитика")
+    tab1, tab2, tab3 = st.tabs(["📊 Аналитика по судам", "📍 Горячие точки (Hotspots)", "🔍 Аналитика по инцидентам"])
 
-candidates_df_for_analytics = find_candidates(spills_gdf, vessels_gdf, time_window_hours)
+    candidates_df_for_analytics = find_candidates(spills_gdf, vessels_gdf, time_window_hours)
 
-with tab1:
-    if not candidates_df_for_analytics.empty:
-        unique_incidents = candidates_df_for_analytics.drop_duplicates(subset=['mmsi', 'spill_id'])
-        ship_names = unique_incidents[['mmsi', 'vessel_name']].drop_duplicates('mmsi')
-        st.subheader("Антирейтинг по количеству связанных пятен")
-        ship_incident_counts = unique_incidents.groupby('mmsi').size().reset_index(name='incident_count').sort_values('incident_count', ascending=False)
-        st.dataframe(pd.merge(ship_incident_counts, ship_names, on='mmsi', how='left'))
-        st.subheader("Антирейтинг по суммарной площади связанных пятен (км²)")
-        ship_area_sum = unique_incidents.groupby('mmsi')['area_sq_km'].sum().reset_index(name='total_area_sq_km').sort_values('total_area_sq_km', ascending=False)
-        st.dataframe(pd.merge(ship_area_sum, ship_names, on='mmsi', how='left'))
-    else:
-        st.info("Нет данных для аналитики по судам.")
+    with tab1:
+        if not candidates_df_for_analytics.empty:
+            unique_incidents = candidates_df_for_analytics.drop_duplicates(subset=['mmsi', 'spill_id'])
+            ship_names = unique_incidents[['mmsi', 'vessel_name']].drop_duplicates('mmsi')
+            st.subheader("Антирейтинг по количеству связанных пятен")
+            ship_incident_counts = unique_incidents.groupby('mmsi').size().reset_index(name='incident_count').sort_values('incident_count', ascending=False)
+            st.dataframe(pd.merge(ship_incident_counts, ship_names, on='mmsi', how='left'), use_container_width=True)
+            st.subheader("Антирейтинг по суммарной площади связанных пятен (км²)")
+            ship_area_sum = unique_incidents.groupby('mmsi')['area_sq_km'].sum().reset_index(name='total_area_sq_km').sort_values('total_area_sq_km', ascending=False)
+            st.dataframe(pd.merge(ship_area_sum, ship_names, on='mmsi', how='left'), use_container_width=True)
+        else:
+            st.info("Нет данных для аналитики по судам.")
 
-with tab2:
-    st.subheader("Карта 'горячих точек' разливов")
-    if spills_gdf.empty:
-        st.warning("Нет данных для отображения карты горячих точек.")
-    else:
-        map_center = [67.638, 53.005]
-        # --- ИЗМЕНЕНИЕ: Возвращен исходный обзорный зум ---
-        m_heatmap = folium.Map(location=map_center, zoom_start=3, tiles=map_tiles, attr='')
-        heat_data = [[point.xy[1][0], point.xy[0][0], row['area_sq_km']] for _, row in spills_gdf.iterrows() for point in [row['geometry'].centroid]]
-        HeatMap(heat_data, radius=15, blur=20).add_to(m_heatmap)
-        st_folium(m_heatmap, width=1200, height=350, returned_objects=[])
+    with tab2:
+        st.subheader("Карта 'горячих точек' разливов")
+        if spills_gdf.empty:
+            st.warning("Нет данных для отображения карты горячих точек.")
+        else:
+            map_center = [67.638, 53.005]
+            # --- ИЗМЕНЕНИЕ: Возвращен исходный обзорный зум ---
+            m_heatmap = folium.Map(location=map_center, zoom_start=3, tiles=map_tiles, attr = , attr = map_tiles)
+            heat_data = [[point.xy[1][0], point.xy[0][0], row['area_sq_km']] for _, row in spills_gdf.iterrows() for point in [row['geometry'].centroid]]
+            HeatMap(heat_data, radius=15, blur=20).add_to(m_heatmap)
+            st_folium(m_heatmap, width=1200, height=350, returned_objects=[])
 
-with tab3:
-    if not candidates_df_for_analytics.empty:
-        unique_incidents = candidates_df_for_analytics.drop_duplicates(subset=['mmsi', 'spill_id'])
-        st.subheader("Пятна с наибольшим количеством судов-кандидатов")
-        spill_candidate_counts = candidates_df_for_analytics.groupby('spill_id')['mmsi'].nunique().reset_index(name='candidate_count').sort_values('candidate_count', ascending=False)
-        st.dataframe(spill_candidate_counts)
-        st.subheader("Главные подозреваемые (минимальное время до обнаружения)")
-        candidates_df_for_analytics['time_to_detection'] = candidates_df_for_analytics['detection_date'] - candidates_df_for_analytics['timestamp']
-        prime_suspects_idx = candidates_df_for_analytics.groupby('spill_id')['time_to_detection'].idxmin()
-        prime_suspects_df = candidates_df_for_analytics.loc[prime_suspects_idx]
-        display_cols = ['spill_id', 'mmsi', 'vessel_name', 'time_to_detection', 'area_sq_km']
-        st.dataframe(prime_suspects_df[[col for col in display_cols if col in prime_suspects_df]].sort_values('area_sq_km', ascending=False))
-    else:
-        st.info("Нет данных для аналитики по инцидентам.")
+    with tab3:
+        if not candidates_df_for_analytics.empty:
+            unique_incidents = candidates_df_for_analytics.drop_duplicates(subset=['mmsi', 'spill_id'])
+            st.subheader("Пятна с наибольшим количеством судов-кандидатов")
+            spill_candidate_counts = candidates_df_for_analytics.groupby('spill_id')['mmsi'].nunique().reset_index(name='candidate_count').sort_values('candidate_count', ascending=False)
+            st.dataframe(spill_candidate_counts, use_container_width=True)
+            st.subheader("Главные подозреваемые (минимальное время до обнаружения)")
+            candidates_df_for_analytics['time_to_detection'] = candidates_df_for_analytics['detection_date'] - candidates_df_for_analytics['timestamp']
+            prime_suspects_idx = candidates_df_for_analytics.groupby('spill_id')['time_to_detection'].idxmin()
+            prime_suspects_df = candidates_df_for_analytics.loc[prime_suspects_idx]
+            display_cols = ['spill_id', 'mmsi', 'vessel_name', 'time_to_detection', 'area_sq_km']
+            st.dataframe(prime_suspects_df[[col for col in display_cols if col in prime_suspects_df]].sort_values('area_sq_km', ascending=False), use_container_width=True)
+        else:
+            st.info("Нет данных для аналитики по инцидентам.")
