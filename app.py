@@ -5,9 +5,10 @@ import folium
 from folium.plugins import HeatMap
 from streamlit_folium import st_folium
 from datetime import timedelta, datetime
+import io
+from docx import Document
 
 # --- 1. Конфигурация страницы и Заголовок ---
-# Тема теперь настраивается через config.toml
 st.set_page_config(layout="wide", page_title="Анализ 'Судно-Пятно'")
 
 # --- CSS для точной настройки вертикальных отступов ---
@@ -47,9 +48,6 @@ ROUTES_FILE_PATH = 'routs.geojson'
 
 # --- 2. Боковая панель с параметрами ---
 st.sidebar.header("Параметры анализа")
-
-# --- ИЗМЕНЕНИЕ: Переключатель темы удален ---
-# dark_mode_map = st.sidebar.toggle("Включить темную тему для карты", value=False, help="Переключает тему карт между светлой и темной.")
 
 time_window_hours = st.sidebar.slider(
     "Временное окно поиска (часы до обнаружения):",
@@ -140,6 +138,100 @@ def find_candidates(spills_gdf, vessels_gdf, time_window_hours):
     ]
     return candidates
 
+# --- ФУНКЦИИ ДЛЯ ГЕНЕРАЦИИ ОТЧЕТА ---
+def strfdelta(tdelta, fmt):
+    """Функция для красивого форматирования timedelta."""
+    d = {"days": tdelta.days}
+    d["hours"], rem = divmod(tdelta.seconds, 3600)
+    d["minutes"], d["seconds"] = divmod(rem, 60)
+    return fmt.format(**d)
+
+def generate_docx_report(spill_data, candidates_data, prime_suspect_data, historical_data):
+    """Генерирует отчет в формате DOCX на основе данных об инциденте."""
+    doc = Document()
+    doc.add_heading('ОТЧЕТ ПО АНАЛИЗУ СВЯЗИ "СУДНО-ПЯТНО"', level=1)
+    
+    doc.add_paragraph(f"Дата составления отчета: {datetime.now().strftime('%d.%m.%Y')}")
+    doc.add_paragraph(f"ID отчета: SP-{spill_data['spill_id'].replace(':', '-')}")
+    doc.add_paragraph()
+
+    doc.add_heading('1. ИНФОРМАЦИЯ ОБ ИНЦИДЕНТЕ (ПЯТНЕ)', level=2)
+    doc.add_paragraph(f"ID пятна (spill_id): {spill_data['spill_id']}")
+    doc.add_paragraph(f"Дата и время обнаружения: {spill_data['detection_date'].strftime('%Y-%m-%d %H:%M:%S')}")
+    doc.add_paragraph(f"Площадь пятна (км²): {spill_data.get('area_sq_km', 0):.2f}")
+    if spill_data['geometry']:
+        centroid = spill_data['geometry'].centroid
+        doc.add_paragraph(f"Географические координаты (центроид): Lat {centroid.y:.4f}, Lon {centroid.x:.4f}")
+
+    doc.add_heading('2. ПАРАМЕТРЫ АНАЛИЗА', level=2)
+    doc.add_paragraph(f"Временное окно поиска: {time_window_hours} часов до момента обнаружения пятна.")
+    doc.add_paragraph("Критерий связи: Судно считается кандидатом, если его AIS-позиция зафиксирована внутри географических границ пятна в указанном временном окне.")
+
+    doc.add_heading('3. РЕЗУЛЬТАТЫ АНАЛИЗА: СУДА-КАНДИДАТЫ', level=2)
+    if not candidates_data.empty:
+        doc.add_paragraph("Сводная таблица судов-кандидатов:")
+        table = doc.add_table(rows=1, cols=4)
+        table.style = 'Table Grid'
+        hdr_cells = table.rows[0].cells
+        hdr_cells[0].text = 'MMSI судна'
+        hdr_cells[1].text = 'Название судна'
+        hdr_cells[2].text = 'Время прохода'
+        hdr_cells[3].text = 'Время до обнаружения'
+
+        for _, row in candidates_data.iterrows():
+            row_cells = table.add_row().cells
+            row_cells[0].text = str(row.get('mmsi', 'N/A'))
+            row_cells[1].text = str(row.get('vessel_name', 'Имя не указано'))
+            row_cells[2].text = row['timestamp'].strftime('%Y-%m-%d %H:%M')
+            time_to_detection = spill_data['detection_date'] - row['timestamp']
+            row_cells[3].text = strfdelta(time_to_detection, "{hours} ч {minutes} мин")
+
+        doc.add_paragraph()
+        doc.add_heading('Детальный анализ основного кандидата', level=3)
+        if prime_suspect_data is not None and not prime_suspect_data.empty:
+            suspect = prime_suspect_data.iloc[0]
+            doc.add_paragraph(f"Судно: {suspect.get('vessel_name', 'Имя не указано')} (MMSI: {suspect['mmsi']})")
+            doc.add_paragraph(f"Время до обнаружения: {strfdelta(suspect['time_to_detection'], '{hours} ч {minutes} мин')}")
+            if historical_data:
+                 doc.add_paragraph(f"Исторический контекст: {historical_data.get('incident_count', 0)} связанных инцидентов, общая площадь {historical_data.get('total_area_sq_km', 0):.2f} км².")
+        else:
+            doc.add_paragraph("Основной кандидат (с минимальным временем до обнаружения) не определен.")
+    else:
+        doc.add_paragraph("Суда-кандидаты в заданном временном окне не найдены.")
+
+    doc.add_heading('4. ЗАКЛЮЧЕНИЕ', level=2)
+    conclusion_text = (
+        f"1. Факт: {spill_data['detection_date'].strftime('%d.%m.%Y')} было зафиксировано загрязнение (ID: {spill_data['spill_id']}) "
+        f"площадью {spill_data.get('area_sq_km', 0):.2f} км².\n"
+        f"2. Анализ: В результате анализа данных AIS за {time_window_hours} часов до обнаружения было выявлено {len(candidates_data)} судов-кандидатов.\n"
+    )
+    if prime_suspect_data is not None and not prime_suspect_data.empty:
+        suspect = prime_suspect_data.iloc[0]
+        conclusion_text += (
+            f"3. Основной вывод: Наиболее вероятным источником загрязнения является судно "
+            f"{suspect.get('vessel_name', 'Имя не указано')} (MMSI: {suspect['mmsi']}), так как оно прошло через данную точку за "
+            f"{strfdelta(suspect['time_to_detection'], '{hours} ч {minutes} мин')} до фиксации пятна."
+        )
+    else:
+        conclusion_text += "3. Основной вывод: Определить наиболее вероятный источник не удалось из-за отсутствия судов-кандидатов."
+    doc.add_paragraph(conclusion_text)
+
+    doc.add_heading('5. РЕКОМЕНДАЦИИ', level=2)
+    if prime_suspect_data is not None and not prime_suspect_data.empty:
+        suspect = prime_suspect_data.iloc[0]
+        reco_text = (
+            f"- Провести углубленную проверку в отношении судна {suspect.get('vessel_name', 'Имя не указано')} (MMSI: {suspect['mmsi']}).\n"
+            "- Запросить судовые документы и записи бортовых журналов за период, предшествующий инциденту."
+        )
+        doc.add_paragraph(reco_text)
+    else:
+        doc.add_paragraph("Рекомендации не могут быть сформированы из-за отсутствия основного кандидата.")
+
+    file_stream = io.BytesIO()
+    doc.save(file_stream)
+    file_stream.seek(0)
+    return file_stream.getvalue()
+
 # --- 4. Основная логика приложения ---
 spills_gdf = load_spills_data(SPILLS_FILE_PATH)
 vessels_gdf = load_ais_data(AIS_FILE_PATH)
@@ -180,19 +272,15 @@ if selected_vessels_display:
 with st.container(border=False):
     st.header("Карта разливов и судов-кандидатов")
     
-    # Задаем центр на Нарьян-Мар
-    map_center = [67.638, 53.005] 
-    
-    # --- ИЗМЕНЕНИЕ: Карта всегда темная ---
+    map_center = [67.63778, 53.00667] 
     map_tiles = "CartoDB dark_matter"
-    
     m = folium.Map(location=map_center, zoom_start=3, tiles=map_tiles, attributionControl=False)
     
+    candidates_df = gpd.GeoDataFrame()
     if spills_gdf.empty:
         st.warning("Нет данных о разливах в выбранном диапазоне дат.")
     else:
         candidates_df = find_candidates(spills_gdf, vessels_gdf, time_window_hours)
-        # Слой 1: Пятна разливов
         spills_fg = folium.FeatureGroup(name="Пятна разливов", show=show_spills)
         for _, row in spills_gdf.iterrows():
             folium.GeoJson(
@@ -204,7 +292,6 @@ with st.container(border=False):
             ).add_to(spills_fg)
         spills_fg.add_to(m)
 
-        # Слой 2: Суда-кандидаты
         candidate_vessels_fg = folium.FeatureGroup(name="Суда-кандидаты", show=show_ships)
         if not candidates_df.empty:
             for _, row in candidates_df.iterrows():
@@ -218,7 +305,6 @@ with st.container(border=False):
                 ).add_to(candidate_vessels_fg)
         candidate_vessels_fg.add_to(m)
         
-        # Слой 3: Судовые трассы
         routes_fg = folium.FeatureGroup(name="Судовые трассы", show=show_routes)
         if not filtered_routes_gdf.empty:
             for _, row in filtered_routes_gdf.iterrows():
@@ -233,7 +319,6 @@ with st.container(border=False):
     folium.LayerControl().add_to(m) 
     st_folium(m, width=1200, height=400, returned_objects=[])
 
-    candidates_df = find_candidates(spills_gdf, vessels_gdf, time_window_hours)
     st.header(f"Таблица судов-кандидатов (в пределах {time_window_hours} часов)")
     if candidates_df.empty:
         st.info("В заданном временном окне и с учетом фильтров суда-кандидаты не найдены.")
@@ -254,7 +339,8 @@ with st.container(border=False):
     st.header("Дополнительная аналитика")
     tab1, tab2, tab3 = st.tabs(["📊 Аналитика по судам", "📍 Горячие точки (Hotspots)", "🔍 Аналитика по инцидентам"])
 
-    candidates_df_for_analytics = find_candidates(spills_gdf, vessels_gdf, time_window_hours)
+    candidates_df_for_analytics = find_candidates(spills_gdf, vessels_gdf, time_window_hours) if not spills_gdf.empty else gpd.GeoDataFrame()
+    prime_suspects_df = pd.DataFrame() # Инициализируем заранее
 
     with tab1:
         if not candidates_df_for_analytics.empty:
@@ -286,11 +372,77 @@ with st.container(border=False):
             st.subheader("Пятна с наибольшим количеством судов-кандидатов")
             spill_candidate_counts = candidates_df_for_analytics.groupby('spill_id')['mmsi'].nunique().reset_index(name='candidate_count').sort_values('candidate_count', ascending=False)
             st.dataframe(spill_candidate_counts, use_container_width=True)
+            
             st.subheader("Главные подозреваемые (минимальное время до обнаружения)")
             candidates_df_for_analytics['time_to_detection'] = candidates_df_for_analytics['detection_date'] - candidates_df_for_analytics['timestamp']
             prime_suspects_idx = candidates_df_for_analytics.groupby('spill_id')['time_to_detection'].idxmin()
+            # Переопределяем наш ранее созданный пустой DataFrame
             prime_suspects_df = candidates_df_for_analytics.loc[prime_suspects_idx]
             display_cols = ['spill_id', 'mmsi', 'vessel_name', 'time_to_detection', 'area_sq_km']
             st.dataframe(prime_suspects_df[[col for col in display_cols if col in prime_suspects_df]].sort_values('area_sq_km', ascending=False), use_container_width=True)
         else:
             st.info("Нет данных для аналитики по инцидентам.")
+
+# --- 7. УЛУЧШЕННЫЙ БЛОК ФОРМИРОВАНИЯ ОТЧЕТА ---
+st.header("Формирование отчета по инциденту")
+with st.expander("🖨️ Нажмите, чтобы выбрать инцидент и создать отчет", expanded=False):
+
+    if not candidates_df_for_analytics.empty:
+        spills_with_candidates = candidates_df_for_analytics[['spill_id', 'detection_date', 'area_sq_km']].drop_duplicates(subset=['spill_id'])
+        candidate_counts = candidates_df_for_analytics.groupby('spill_id')['mmsi'].nunique().reset_index(name='candidate_count')
+        
+        reportable_incidents_df = pd.merge(spills_with_candidates, candidate_counts, on='spill_id').sort_values(by='detection_date', ascending=False)
+        reportable_incidents_df.rename(columns={
+            'spill_id': 'ID Пятна',
+            'detection_date': 'Дата обнаружения',
+            'area_sq_km': 'Площадь, км²',
+            'candidate_count': 'Кол-во канд.'
+        }, inplace=True)
+
+        st.info("Ниже представлены инциденты, для которых найдены суда-кандидаты. Выберите один для создания отчета.")
+        st.dataframe(reportable_incidents_df.reset_index(drop=True), use_container_width=True)
+
+        reportable_incidents_df['display_option'] = reportable_incidents_df.apply(
+            lambda row: f"ID: {row['ID Пятна']} (кандидатов: {row['Кол-во канд.']})",
+            axis=1
+        )
+        
+        selected_option = st.radio(
+            "Выберите инцидент:",
+            options=reportable_incidents_df['display_option'].tolist(),
+            key="report_selection_radio"
+        )
+
+        if selected_option:
+            selected_spill_id = selected_option.split(' ')[1]
+
+            spill_row = spills_gdf[spills_gdf['spill_id'] == selected_spill_id].iloc[0]
+            candidates_for_spill = candidates_df_for_analytics[candidates_df_for_analytics['spill_id'] == selected_spill_id]
+            
+            prime_suspect_for_spill = prime_suspects_df[prime_suspects_df['spill_id'] == selected_spill_id] if not prime_suspects_df.empty else pd.DataFrame()
+
+            historical_data = {}
+            if not prime_suspect_for_spill.empty:
+                suspect_mmsi = prime_suspect_for_spill.iloc[0]['mmsi']
+                
+                unique_incidents = candidates_df_for_analytics.drop_duplicates(subset=['mmsi', 'spill_id'])
+                ship_incident_counts = unique_incidents.groupby('mmsi').size().reset_index(name='incident_count')
+                ship_area_sum = unique_incidents.groupby('mmsi')['area_sq_km'].sum().reset_index(name='total_area_sq_km')
+                
+                incident_count = ship_incident_counts[ship_incident_counts['mmsi'] == suspect_mmsi]
+                area_sum = ship_area_sum[ship_area_sum['mmsi'] == suspect_mmsi]
+
+                historical_data['incident_count'] = incident_count['incident_count'].iloc[0] if not incident_count.empty else 0
+                historical_data['total_area_sq_km'] = area_sum['total_area_sq_km'].iloc[0] if not area_sum.empty else 0
+
+            report_bytes = generate_docx_report(spill_row, candidates_for_spill, prime_suspect_for_spill, historical_data)
+
+            st.download_button(
+                label="📄 Скачать отчет (.docx)",
+                data=report_bytes,
+                file_name=f"Отчет_{selected_spill_id.replace(':', '_')}.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            )
+
+    else:
+        st.info("Для формирования отчета не найдено инцидентов с судами-кандидатами в заданном временном окне и с учетом фильтров.")
