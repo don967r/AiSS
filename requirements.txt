@@ -8,3 +8,4 @@ geopandas
 pydeck
 python-dateutil
 plotly
+python-docx
