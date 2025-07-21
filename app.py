@@ -272,7 +272,7 @@ with st.container(border=False):
         else:
             map_center = [67.638, 53.005]
             # --- ИЗМЕНЕНИЕ: Возвращен исходный обзорный зум ---
-            m_heatmap = folium.Map(location=map_center, zoom_start=3, tiles=map_tiles, attr = , attr = map_tiles)
+            m_heatmap = folium.Map(location=map_center, zoom_start=3, tiles=map_tiles, attr = map_tiles)
             heat_data = [[point.xy[1][0], point.xy[0][0], row['area_sq_km']] for _, row in spills_gdf.iterrows() for point in [row['geometry'].centroid]]
             HeatMap(heat_data, radius=15, blur=20).add_to(m_heatmap)
             st_folium(m_heatmap, width=1200, height=350, returned_objects=[])
