@@ -9,3 +9,4 @@ pydeck
 python-dateutil
 plotly
 python-docx
+matplotlib
