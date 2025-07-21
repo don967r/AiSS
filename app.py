@@ -7,6 +7,7 @@ from streamlit_folium import st_folium
 from datetime import timedelta, datetime
 
 # --- 1. Конфигурация страницы и Заголовок ---
+# Тема теперь настраивается через config.toml
 st.set_page_config(layout="wide", page_title="Анализ 'Судно-Пятно'")
 
 # --- CSS для точной настройки вертикальных отступов ---
@@ -15,11 +16,11 @@ st.markdown("""
 /* Уменьшаем общие вертикальные отступы для всей страницы */
 div.block-container {
     padding-top: 2rem;
-    padding-bottom: 1rem; /* Можно сделать чуть меньше */
+    padding-bottom: 1rem;
 }
-/* Главное изменение: Уменьшаем стандартный промежуток между элементами */
+/* Уменьшаем стандартный промежуток между элементами */
 div[data-testid="stVerticalBlock"] {
-    gap: 0.8rem; /* Уменьшим еще немного для плотности */
+    gap: 0.8rem;
 }
 /* Убираем лишний нижний отступ у контейнера с картой */
 div[data-testid="stFolium"] {
@@ -30,12 +31,11 @@ h2 {
     margin-top: 1.5rem !important;
     margin-bottom: 0.5rem !important;
 }
-/* === НОВОЕ ПРАВИЛО ДЛЯ ВКЛАДОК === */
 /* Заставляет панель вкладки сжиматься до высоты своего контента */
 div[data-testid="stTabsPanel"] {
-    padding-top: 1rem; /* Добавим небольшой отступ сверху для красоты */
+    padding-top: 1rem;
     padding-bottom: 0 !important;
-    min-height: 0; /* Это ключ к схлопыванию пустого пространства */
+    min-height: 0;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -47,7 +47,10 @@ ROUTES_FILE_PATH = 'routs.geojson'
 
 # --- 2. Боковая панель с параметрами ---
 st.sidebar.header("Параметры анализа")
-dark_mode_map = st.sidebar.toggle("Включить темную тему для карты", value=False, help="Переключает тему карт между светлой и темной.")
+
+# --- ИЗМЕНЕНИЕ: Переключатель темы удален ---
+# dark_mode_map = st.sidebar.toggle("Включить темную тему для карты", value=False, help="Переключает тему карт между светлой и темной.")
+
 time_window_hours = st.sidebar.slider(
     "Временное окно поиска (часы до обнаружения):",
     min_value=1, max_value=168, value=24, step=1,
@@ -179,10 +182,11 @@ with st.container(border=False):
     
     # Задаем центр на Нарьян-Мар
     map_center = [67.638, 53.005] 
-    map_tiles = "CartoDB dark_matter" if dark_mode_map else "CartoDB positron"
     
-    # --- ИЗМЕНЕНИЕ: Возвращен исходный обзорный зум ---
-    m = folium.Map(location=map_center, zoom_start=3, tiles=map_tiles, attributionControl=0)
+    # --- ИЗМЕНЕНИЕ: Карта всегда темная ---
+    map_tiles = "CartoDB dark_matter"
+    
+    m = folium.Map(location=map_center, zoom_start=3, tiles=map_tiles, attributionControl=False)
     
     if spills_gdf.empty:
         st.warning("Нет данных о разливах в выбранном диапазоне дат.")
@@ -271,8 +275,7 @@ with st.container(border=False):
             st.warning("Нет данных для отображения карты горячих точек.")
         else:
             map_center = [67.638, 53.005]
-            # --- ИЗМЕНЕНИЕ: Возвращен исходный обзорный зум ---
-            m_heatmap = folium.Map(location=map_center, zoom_start=3, tiles=map_tiles)
+            m_heatmap = folium.Map(location=map_center, zoom_start=3, tiles=map_tiles, attributionControl=False)
             heat_data = [[point.xy[1][0], point.xy[0][0], row['area_sq_km']] for _, row in spills_gdf.iterrows() for point in [row['geometry'].centroid]]
             HeatMap(heat_data, radius=15, blur=20).add_to(m_heatmap)
             st_folium(m_heatmap, width=1200, height=350, returned_objects=[])
